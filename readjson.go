@@ -77,14 +77,7 @@ func readData(device string) (gjson.Result, error) {
 
 	if _, err := os.Stat(device); err == nil {
 		cacheValue, cacheOk := jsonCache.Load(device)
-		timeToScan := false
-		if cacheOk {
-			timeToScan = time.Now().After(cacheValue.(JSONCache).LastCollect.Add(options.SMARTctl.CollectPeriodDuration))
-		} else {
-			timeToScan = true
-		}
-
-		if timeToScan || !cacheOk {
+		if !cacheOk || time.Now().After(cacheValue.(JSONCache).LastCollect.Add(options.SMARTctl.CollectPeriodDuration)) {
 			json, ok := readSMARTctl(device)
 			if ok {
 				jsonCache.Store(device, JSONCache{JSON: json, LastCollect: time.Now()})
@@ -96,7 +89,7 @@ func readData(device string) (gjson.Result, error) {
 			}
 			return gjson.Parse("{}"), fmt.Errorf("smartctl returned bad data for device %s", device)
 		}
-		return cacheValue.JSON, nil
+		return cacheValue.(JSONCache).JSON, nil
 	}
 	return gjson.Parse("{}"), fmt.Errorf("Device %s unavialable", device)
 }
