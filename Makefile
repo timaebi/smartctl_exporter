@@ -40,3 +40,7 @@ collect_fake_json:
 	-mkdir debug
 	-rm -f debug/*json
 	sudo ./collect_fake_json.sh
+
+docker:
+	@echo "building docker containers"
+	@docker buildx build --platform linux/arm64,linux/amd64 --tag timaebi/smartctl_exporter:0.7.0-timaebi --push .
