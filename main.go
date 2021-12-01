@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	options Options
+	options *Options
 	logger  Logger
 )
 
