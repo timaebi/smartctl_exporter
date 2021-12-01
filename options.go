@@ -3,11 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"time"
-
-	yaml "gopkg.in/yaml.v2"
 )
 
 var (
@@ -16,27 +15,34 @@ var (
 
 // SMARTOptions is a inner representation of a options
 type SMARTOptions struct {
-	BindTo                string `yaml:"bind_to"`
-	URLPath               string `yaml:"url_path"`
-	FakeJSON              bool   `yaml:"fake_json"`
-	SMARTctlLocation      string `yaml:"smartctl_location"`
-	CollectPeriod         string `yaml:"collect_not_more_than_period"`
+	BindTo                string
+	URLPath               string
+	FakeJSON              bool
+	SMARTctlLocation      string
+	CollectPeriod         string
 	CollectPeriodDuration time.Duration
-	Devices               []string `yaml:"devices"`
+	Devices               []string
 }
 
 // Options is a representation of a options
 type Options struct {
-	SMARTctl SMARTOptions `yaml:"smartctl_exporter"`
+	SMARTctl SMARTOptions
 }
 
-// Parse options from yaml config file
-func loadOptions() Options {
-	configFile := flag.String("config", "/etc/smartctl_exporter.yaml", "Path to smartctl_exporter config file")
+// Parse options from command line arguments file
+func loadOptions() *Options {
+	opts := &Options{}
+
+	flag.StringVar(&opts.SMARTctl.BindTo, "bindTo", ":9633", "address and port to bind to")
+	flag.StringVar(&opts.SMARTctl.URLPath, "urlPath", "/metrics", "metrics endpoint path")
+	flag.BoolVar(&opts.SMARTctl.FakeJSON, "fakeJson", false, "use fake json (only for debugging)")
+	flag.StringVar(&opts.SMARTctl.SMARTctlLocation, "smartCtlLocation", "/usr/sbin/smartctl", "smartctl binary version >7.0 required")
+	flag.StringVar(&opts.SMARTctl.CollectPeriod, "collectPeriod", "60s", "minimal time interval between two smartctl runs")
 	verbose := flag.Bool("verbose", false, "Verbose log output")
 	debug := flag.Bool("debug", false, "Debug log output")
 	version := flag.Bool("version", false, "Show application version and exit")
 	flag.Parse()
+	deviceGlobs := flag.Args()
 
 	if *version {
 		fmt.Printf("smartctl_exporter version: %s\n", exporterVersion)
@@ -44,35 +50,56 @@ func loadOptions() Options {
 	}
 
 	logger = newLogger(*verbose, *debug)
-
-	logger.Verbose("Read options from %s\n", *configFile)
-	yamlFile, err := ioutil.ReadFile(*configFile)
-	if err != nil {
-		logger.Panic("Failed read %s: %s", configFile, err)
-	}
-
-	opts := Options{
-		SMARTOptions{
-			BindTo:           "9633",
-			URLPath:          "/metrics",
-			FakeJSON:         false,
-			SMARTctlLocation: "/usr/sbin/smartctl",
-			CollectPeriod:    "60s",
-			Devices:          []string{},
-		},
-	}
-
-	if yaml.Unmarshal(yamlFile, &opts) != nil {
-		logger.Panic("Failed parse %s: %s", configFile, err)
-	}
-
 	d, err := time.ParseDuration(opts.SMARTctl.CollectPeriod)
 	if err != nil {
 		logger.Panic("Failed read collect_not_more_than_period (%s): %s", opts.SMARTctl.CollectPeriod, err)
 	}
-
 	opts.SMARTctl.CollectPeriodDuration = d
 
-	logger.Debug("Parsed options: %s", opts)
+	if len(deviceGlobs) > 0 {
+		opts.SMARTctl.Devices = make([]string, 0)
+		for _, deviceGlob := range deviceGlobs {
+			glob, err := filepath.Glob(deviceGlob)
+			if err != nil {
+				logger.Panic("error reading device list: %s", err)
+			}
+			opts.SMARTctl.Devices = append(opts.SMARTctl.Devices, glob...)
+		}
+		logger.Debug("Parsed options: %s", opts)
+	} else {
+		opts.SMARTctl.Devices, err = findSmartDevices(opts)
+		if err != nil {
+			logger.Panic("scanning for S.M.A.R.T enabled devices failed: %s", err)
+		}
+	}
+	if len(opts.SMARTctl.Devices) == 0 {
+		logger.Panic("at least one device is required")
+	}
 	return opts
+}
+
+// use smartctl --scan to find disks
+func findSmartDevices(opts *Options) ([]string, error) {
+	logger.Info("search for smart enabled devices...")
+	out, err := exec.Command(opts.SMARTctl.SMARTctlLocation, "--json", "--scan").Output()
+	if err != nil {
+		logger.Warning("S.M.A.R.T. output reading error: %s", err)
+		return nil, err
+	}
+	json := parseJSON(string(out))
+	rcOk := resultCodeIsOk(json.Get("smartctl.exit_status").Int())
+	jsonOk := jsonIsOk(json)
+
+	if !jsonOk || !rcOk {
+		return nil, fmt.Errorf("error parsing S.M.A.R.T. output")
+	}
+
+	devices := make([]string, 0)
+	for _, dev := range json.Get("devices").Array() {
+		devName := dev.Get("name").String()
+		protocol := dev.Get("protocol").String()
+		logger.Info("...found device %s using protocol %s", devName, protocol)
+		devices = append(devices, devName)
+	}
+	return devices, nil
 }
