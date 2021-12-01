@@ -12,28 +12,25 @@ Example output you can show in [EXAMPLE.md](EXAMPLE.md)
 # Requirements
 smartmontools >= 7.0, because export to json [released in 7.0](https://www.smartmontools.org/browser/tags/RELEASE_7_0/smartmontools/NEWS#L11)
 
-# Configuration
-## Command line options
-* `--config=/path/to/file.yaml`: Path to configuration file, defaulr `/etc/smartctl_exporter.yaml`
-* `--verbose`: verbosed log, default no
-* `--debug`: Debug logging, default no
-* `--version`: Show version and exit
+# Usage
 
-## Configuration file
-Example content:
 ```
-smartctl_exporter:
-  bind_to: "[::1]:9633"
-  url_path: "/metrics"
-  fake_json: no
-  smartctl_location: /usr/sbin/smartctl
-  collect_not_more_than_period: 120s
-  devices:
-  - /dev/sda
-  - /dev/sdb
-  - /dev/sdc
-  - /dev/sdd
-  - /dev/sde
-  - /dev/sdf
+Usage of smartctl_exporter:
+  -bindTo string
+        address and port to bind to (default ":9633")
+  -collectPeriod string
+        minimal time interval between two smartctl runs (default "60s")
+  -debug
+        Debug log output
+  -fakeJson
+        use fake json (only for debugging)
+  -smartCtlLocation string
+        smartctl binary version >7.0 required (default "/usr/sbin/smartctl")
+  -urlPath string
+        metrics endpoint path (default "/metrics")
+  -verbose
+        Verbose log output
+  -version
+        Show application version and exit
+
 ```
-`fake_json` used for debugging.
